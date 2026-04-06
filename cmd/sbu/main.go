@@ -1,6 +1,7 @@
 package main
 
 import (
+	"diplom/internal/config"
 	"diplom/internal/storage"
 	"flag"
 	"fmt"
@@ -8,15 +9,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
-
-type config struct {
-	Source      string `yaml: "source"`
-	Bucket      string `yaml: "bucket"`
-	Endpoint    string `yaml: "endpoint"`    //"localhost:9000"
-	AccessKeyID string `yaml: "accessKeyId"` //"admin"
-	SecretKey   string `yaml: "secretKey"`   //"admin123"
-	UseSSL      string `yaml: "useSSL"`      //false
-}
 
 func main() {
 
@@ -33,7 +25,7 @@ func main() {
 
 	} else if *run {
 
-		// check config
+		// find config
 		files, err := os.ReadDir(".")
 		if err != nil {
 			fmt.Println(err)
@@ -43,21 +35,21 @@ func main() {
 
 		for _, file := range files {
 
-			if file.Name() == "config.yaml" {
+			if file.Name() == "config.yml" {
 
 				content, err := os.ReadFile(file.Name())
 				if err != nil {
 					fmt.Println(err)
 				}
 
-				var conf config
+				var conf config.Config
 
 				err = yaml.Unmarshal(content, &conf)
 				if err != nil {
 					fmt.Println(err)
 				}
 
-				err = storage.BackupToS3(conf.Source)
+				err = storage.UploadFile(conf)
 				if err != nil {
 					fmt.Println(err)
 				}
@@ -67,20 +59,20 @@ func main() {
 		}
 
 		if !stateOfSearch {
-			var cfg = config{
+			var conf = config.Config{
 				Source:      "Path from directory to copy",
 				Endpoint:    "Is your endpoint, example: localhost:9000",
 				AccessKeyID: "Is AccessKeyID, example: admin",
 				SecretKey:   "Is SecretKey, example: admin123",
-				UseSSL:      "UseSSL, example: false",
+				UseSSL:      false,
 				Bucket:      "Bucket name",
 			}
-			data, err := yaml.Marshal(&cfg)
+			data, err := yaml.Marshal(&conf)
 			if err != nil {
 				fmt.Println(err)
 			}
 
-			err = os.WriteFile("config.yaml", data, os.ModePerm)
+			err = os.WriteFile("config.yml", data, os.ModePerm)
 			if err != nil {
 				fmt.Println(err)
 			}
