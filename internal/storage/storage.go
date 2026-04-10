@@ -1,12 +1,17 @@
 package storage
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"diplom/internal/config"
+	"encoding/hex"
+	"io"
 	"os"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/restic/chunker"
 )
 
 func UploadFile(conf config.Config) error {
@@ -54,10 +59,36 @@ func findFile(dirName string, client *minio.Client, bucket string) error {
 				findFile(dirName+string(os.PathSeparator)+file.Name(), client, bucket)
 
 			} else {
-				_, err := client.FPutObject(context.Background(), bucket, dirName+string(os.PathSeparator)+file.Name(), dirName+string(os.PathSeparator)+file.Name(), minio.PutObjectOptions{})
+
+				file, err := os.Open(dirName + string(os.PathSeparator) + file.Name())
 				if err != nil {
 					return err
 				}
+				defer file.Close()
+
+				chunk := chunker.New(file, chunker.Pol(0x3DA3358B4DC173))
+
+				buf := make([]byte, 8*1024*1024)
+
+				for {
+					ch, err := chunk.Next(buf)
+
+					if err == io.EOF {
+						break
+					}
+
+					if err != nil {
+						return err
+					}
+
+					hash := sha256.Sum256(ch.Data)
+
+					_, err = client.PutObject(context.Background(), bucket, "object/"+string(hex.EncodeToString(hash[:])), bytes.NewReader(ch.Data), int64(len(ch.Data)), minio.PutObjectOptions{})
+					if err != nil {
+						return err
+					}
+				}
+
 			}
 		}
 	}
