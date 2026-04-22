@@ -15,5 +15,7 @@ vendor/
 Thumbs.db
 
 screen/
+newFiels/
 oldFiles/
 config.yml
+sbu.db
