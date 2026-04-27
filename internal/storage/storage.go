@@ -43,6 +43,7 @@ func UploadFile(conf config.Config) error {
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretKey, ""),
 		Secure: useSSL,
+		Region: "ru-central-1",
 	})
 	if err != nil {
 		return err
