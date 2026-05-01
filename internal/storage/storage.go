@@ -7,9 +7,11 @@ import (
 	"database/sql"
 	"diplom/internal/config"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -26,70 +28,51 @@ const (
 )
 
 // upload file to s3
-func UploadFile(conf config.Config) error {
-
-	// get time
-	nowISO := time.Now().UTC().Format(time.RFC3339)
-
-	// read config
-	endpoint := conf.Endpoint
-	accessKeyID := conf.AccessKeyID
-	secretKey := conf.SecretKey
-	dir := conf.Source
-	bucket := conf.Bucket
-	useSSL := conf.UseSSL
-
-	// create minio client
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretKey, ""),
-		Secure: useSSL,
-		Region: "ru-central-1",
-	})
-	if err != nil {
-		return err
-	}
-
-	// create db
-	db, err := sql.Open("sqlite", nameDB)
-	if err != nil {
-		return err
-	}
+func Backup(conf config.BackupConfig, client *minio.Client) error {
 
 	// init db
-	err = initDB(db)
+	db, err := setupDB(conf.Bucket, client)
 	if err != nil {
 		return err
 	}
-
 	defer db.Close()
 
-	// check bucket
-	err = ensureBucket(minioClient, bucket)
-	if err != nil {
+	// ensure bucket
+	if err := ensureBucket(client, conf.Bucket); err != nil {
 		return err
 	}
 
 	// create snapshot
-	_, err = db.Exec("INSERT INTO snapshots (timestamp) VALUES (?)", nowISO)
+	snapshotID, err := createSnapshot(db)
 	if err != nil {
 		return err
 	}
 
-	// upload files and snapshot
-	err = findFile(dir, minioClient, bucket, db)
-	if err != nil {
+	// backup files
+	if err := backupFiles(conf.Source, client, conf.Bucket, db, snapshotID); err != nil {
 		return err
 	}
 
 	// upload db
-	_, err = minioClient.FPutObject(context.Background(), bucket, nameDB, nameDB, minio.PutObjectOptions{})
-	if err != nil {
-		return err
-	}
-	return nil
+	return uploadDB(client, conf.Bucket)
 }
 
-func findFile(dirName string, client *minio.Client, bucket string, db *sql.DB) error {
+func createSnapshot(db *sql.DB) (int64, error) {
+
+	// get time
+	nowISO := time.Now().UTC().Format(time.RFC3339)
+
+	// create snapshot
+	res, err := db.Exec("INSERT INTO snapshots (timestamp) VALUES (?)", nowISO)
+	if err != nil {
+		return 0, err
+	}
+
+	return res.LastInsertId()
+
+}
+
+func backupFiles(dirName string, client *minio.Client, bucket string, db *sql.DB, snapshotID int64) error {
 
 	// read dir
 	files, err := os.ReadDir(dirName)
@@ -97,48 +80,104 @@ func findFile(dirName string, client *minio.Client, bucket string, db *sql.DB) e
 		return err
 	}
 
-	// if dir not empty
-	if len(files) != 0 {
-		for _, file := range files {
-			if file.IsDir() {
-				err := findFile(filepath.Join(dirName, file.Name()), client, bucket, db)
-				if err != nil {
-					return err
-				}
-			} else {
-				err := uploadBlocks(filepath.Join(dirName, file.Name()), client, bucket, db)
-				if err != nil {
-					return err
-				}
+	for _, file := range files {
+		fullPath := filepath.Join(dirName, file.Name())
+
+		// backup files
+		if file.IsDir() {
+			if err := backupFiles(fullPath, client, bucket, db, snapshotID); err != nil {
+				return err
+			}
+		} else {
+			if err := uploadBlocks(fullPath, client, bucket, db, snapshotID); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
 }
-func uploadBlocks(filePath string, client *minio.Client, bucket string, db *sql.DB) error {
 
-	res, err := db.Exec("INSERT INTO files (path_file, id_snapshot) VALUES (?, (SELECT id FROM snapshots ORDER BY id DESC LIMIT 1))", filePath)
+func setupDB(bucket string, client *minio.Client) (*sql.DB, error) {
 
-	fileID, err := res.LastInsertId()
+	// check db
+	_, err := client.StatObject(context.Background(), bucket, nameDB, minio.StatObjectOptions{})
+
+	// download db
+	if err == nil {
+
+		err = client.FGetObject(context.Background(), bucket, nameDB, nameDB, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to download db: %w", err)
+		}
+
+	}
+
+	db, err := sql.Open("sqlite", nameDB)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := initDB(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return db, nil
+}
+
+func uploadDB(client *minio.Client, bucket string) error {
+
+	_, err := client.FPutObject(context.Background(), bucket, nameDB, nameDB, minio.PutObjectOptions{})
+	return err
+
+}
+func insertFile(db *sql.DB, filePath string, snapshotID int64) (int64, error) {
+
+	// insert file to db
+	res, err := db.Exec("INSERT INTO files (path_file, id_snapshot) VALUES (?, ?)", filePath, snapshotID)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func normalizePath(path string) string {
+	volume := filepath.VolumeName(path)
+	withoutVolume := strings.TrimPrefix(path, volume)
+	cleanedPath := filepath.Clean(withoutVolume)
+	sepSlashPath := filepath.ToSlash(cleanedPath)
+	return strings.TrimPrefix(sepSlashPath, "/")
+}
+
+func uploadBlocks(filePath string, client *minio.Client, bucket string, db *sql.DB, snapshotID int64) error {
+
+	// insert file to db
+	fileID, err := insertFile(db, normalizePath(filePath), snapshotID)
 	if err != nil {
 		return err
 	}
 
-	// open file
+	// read file
 	content, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
 	defer content.Close()
 
-	// create chunker and buffer
+	// split file into blocks
 	chunk := chunker.New(content, chunker.Pol(polynomial))
 	buf := make([]byte, bufSize)
 
+	// insert blocks
+	stmt, err := db.Prepare("INSERT INTO blocks (id_file, hash, block_index) VALUES (?,?,?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	// process split file
 	blockIndex := 0
 	for {
-
-		// read chunk
 		ch, err := chunk.Next(buf)
 		if err == io.EOF {
 			break
@@ -147,25 +186,30 @@ func uploadBlocks(filePath string, client *minio.Client, bucket string, db *sql.
 			return err
 		}
 
-		// create hash from data and add to blob
-		hash := sha256.Sum256(ch.Data)
-		hash256 := hex.EncodeToString(hash[:])
-
-		// upload to s3
-		_, err = client.PutObject(context.Background(), bucket, prefObj+hash256, bytes.NewReader(ch.Data), int64(len(ch.Data)), minio.PutObjectOptions{})
-		if err != nil {
-			return err
-		}
-
-		_, err = db.Exec("INSERT INTO blocks (id_file,hash,block_index) VALUES (?,?,?)", fileID, hash256, blockIndex)
-		if err != nil {
+		// hashing and uploading block
+		if err := processBlock(ch, client, bucket, stmt, fileID, blockIndex); err != nil {
 			return err
 		}
 
 		blockIndex++
-
 	}
 	return nil
+}
+
+func processBlock(ch chunker.Chunk, client *minio.Client, bucket string, stmt *sql.Stmt, fileID int64, blockIndex int) error {
+
+	// hashing
+	hash := sha256.Sum256(ch.Data)
+	hash256 := hex.EncodeToString(hash[:])
+
+	// uploading block
+	_, err := client.PutObject(context.Background(), bucket, prefObj+hash256, bytes.NewReader(ch.Data), int64(len(ch.Data)), minio.PutObjectOptions{})
+	if err != nil {
+		return err
+	}
+
+	_, err = stmt.Exec(fileID, hash256, blockIndex)
+	return err
 }
 
 func initDB(db *sql.DB) error {
@@ -185,23 +229,34 @@ func initDB(db *sql.DB) error {
 }
 
 func ensureBucket(client *minio.Client, bucket string) error {
-
-	// check bucket
-	exist, err := client.BucketExists(context.Background(), bucket)
+	exists, err := client.BucketExists(context.Background(), bucket)
 	if err != nil {
 		return err
 	}
-
-	// if bucket exist
-	if exist {
-		return nil
+	if !exists {
+		return client.MakeBucket(context.Background(), bucket, minio.MakeBucketOptions{})
 	}
-
-	// create bucket
-	err = client.MakeBucket(context.Background(), bucket, minio.MakeBucketOptions{})
-	if err != nil {
-		return err
-	}
-
 	return nil
+}
+
+func ConnectToS3(cfg config.S3Config) (*minio.Client, error) {
+
+	// read config
+	endpoint := cfg.Endpoint
+	accessKeyID := cfg.AccessKeyID
+	secretKey := cfg.SecretKey
+	useSSL := cfg.UseSSL
+	region := cfg.Region
+
+	// create minio client
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKeyID, secretKey, ""),
+		Secure: useSSL,
+		Region: region,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return minioClient, nil
 }

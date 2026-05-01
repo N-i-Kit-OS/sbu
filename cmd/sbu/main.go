@@ -4,125 +4,152 @@ import (
 	"diplom/internal/config"
 	"diplom/internal/restore"
 	"diplom/internal/storage"
-	"flag"
 	"fmt"
 	"os"
 
-	"gopkg.in/yaml.v3"
-)
-
-var (
-	nameConfigFile = "config.yml"
+	"go.yaml.in/yaml/v3"
 )
 
 func main() {
 
-	// create flags
-	run := flag.Bool("run", false, "Running program")
-	help := flag.Bool("help", false, "Help")
-	recov := flag.Bool("recov", false, "Restore backup")
-
-	flag.Parse()
-
-	// check flags
-	if flag.NFlag() == 0 || *help {
-
-		fmt.Println("You need to run the program with the --run flag")
-
-	}
-
-	conf, err := readConfigF()
-	if err != nil {
+	if err := run(); err != nil {
 		fmt.Println(err)
 	}
-
-	if *run {
-
-		// upload directory from config to s3
-		err = storage.UploadFile(conf)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-	}
-
-	if *recov {
-
-		// restore backup
-		err = restore.Restore(conf)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-	}
-
 }
 
-func createCnfigExemple() error {
+func run() error {
 
-	var conf = config.Config{
-		Source:         "Path from directory to copy",
-		Endpoint:       "Is your endpoint, example: localhost:9000",
-		AccessKeyID:    "Is AccessKeyID, example: admin",
-		SecretKey:      "Is SecretKey, example: admin123",
-		UseSSL:         false,
-		Bucket:         "Bucket name: bucket",
-		FromRecovery:   "Path to recovery: dirName/ or path/to/file.txt",
-		DateRecovery:   "Date recovery, exemple: 2024-11-21_19-30-00",
-		PathToRecovery: "Where to recovery, exemple: dirName/",
+	// check flags
+	if len(os.Args) < 2 {
+		printUsage()
+		return nil
 	}
 
-	data, err := yaml.Marshal(&conf)
-	if err != nil {
-		return err
+	// check command
+	command := os.Args[1]
+
+	// find config
+	var configPath string
+	if len(os.Args) > 2 {
+		configPath = os.Args[2]
+	} else {
+		configPath = "config.yml"
 	}
 
-	// create file config.yml
-	err = os.WriteFile(nameConfigFile, data, os.ModePerm)
-	if err != nil {
-		return err
+	switch command {
+
+	case "init":
+		return createConfigExample(configPath)
+
+	case "run":
+
+		// read config
+		cfg, err := readConfigF(configPath)
+		if err != nil {
+			return err
+		}
+
+		return runBackupOrRestore(cfg)
+
+	default:
+		printUsage()
 	}
 
 	return nil
 }
 
-func readConfigF() (config.Config, error) {
+func printUsage() {
+	fmt.Println("Usage: sbu <command> [config_path]")
+	fmt.Println("Commands:")
+	fmt.Println("  init [config_path]    create example config (default: config.yaml)")
+	fmt.Println("  run  [config_path]    run backup or restore (default: config.yaml)")
+}
 
-	// find config
-	files, err := os.ReadDir(".")
+func runBackupOrRestore(cfg config.Config) error {
+
+	minioClient, err := storage.ConnectToS3(cfg.S3Config)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
 
-	for _, file := range files {
+	switch cfg.Mode {
+	case "backup":
 
-		if file.Name() == nameConfigFile {
-
-			// read config
-			content, err := os.ReadFile(file.Name())
-			if err != nil {
-				return config.Config{}, err
-			}
-
-			// parse config to struct
-			var conf config.Config
-
-			err = yaml.Unmarshal(content, &conf)
-			if err != nil {
-				return config.Config{}, err
-			}
-
-			return conf, nil
+		// upload directory from config to s3
+		err := storage.Backup(cfg.BackupConfig, minioClient)
+		if err != nil {
+			return err
 		}
+
+	case "restore":
+
+		// download files from s3 to config path
+		err := restore.Restore(cfg.RestoreConfig, minioClient)
+		if err != nil {
+			return err
+		}
+
+	default:
+		fmt.Println("The operating mode is not specified or is specified incorrectly")
+		return nil
 	}
 
-	// if config not found
-	err = createCnfigExemple()
+	return nil
+}
+
+func createConfigExample(cfgPath string) error {
+	example := `# Режим работы: backup или restore
+mode: backup
+
+# Настройки подключения к S3
+s3:
+  endpoint: "s3.cloud.ru"
+  accessKeyId: "tenant:access_key"
+  secretKey: "your_secret_key"
+  useSSL: true
+  region: "ru-central-1"
+
+# Настройки для бэкапа (если mode: backup)
+backup:
+  source: "/home/user/documents"
+  name: "my_snapshot_2026"
+  bucket: "my-backups"
+  ignore:
+    - "*.tmp"
+    - ".git"
+
+# Настройки для восстановления (если mode: restore)
+restore:
+  source: "oldFiles/documents"
+  target: "./restored"
+  date: "2026-04-24_22-48-47"
+  name: "my_snapshot_2026"
+  bucket: "my-backups"
+  ignore:
+    - "temp"
+`
+	return os.WriteFile(cfgPath, []byte(example), 0644)
+}
+
+func readConfigF(cfgPath string) (config.Config, error) {
+
+	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
+		return config.Config{}, err
+	}
+
+	// read config
+	content, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return config.Config{}, err
 	}
 
-	fmt.Println("Create config file")
+	// parse config to struct
+	var conf config.Config
 
-	return config.Config{}, nil
+	err = yaml.Unmarshal(content, &conf)
+	if err != nil {
+		return config.Config{}, err
+	}
+
+	return conf, nil
 }

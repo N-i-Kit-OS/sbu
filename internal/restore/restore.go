@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"diplom/internal/config"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 const (
@@ -18,22 +18,16 @@ const (
 	prefObj = "object/"
 )
 
-func Restore(conf config.Config) error {
-
-	// connect to s3
-	miClient, err := connectToS3(conf)
-	if err != nil {
-		return err
-	}
+func Restore(conf config.RestoreConfig, client *minio.Client) error {
 
 	// download db
-	err = miClient.FGetObject(context.Background(), conf.Bucket, nameDB, nameDB, minio.GetObjectOptions{})
+	err := client.FGetObject(context.Background(), conf.Bucket, nameDB, nameDB, minio.GetObjectOptions{})
 	if err != nil {
 		return err
 	}
 
 	// restore file
-	err = restoreFiles(conf, miClient)
+	err = restoreFiles(conf, client)
 	if err != nil {
 		return err
 	}
@@ -41,13 +35,15 @@ func Restore(conf config.Config) error {
 	return nil
 }
 
-func restoreFiles(config config.Config, minioClient *minio.Client) error {
+func restoreFiles(conf config.RestoreConfig, minioClient *minio.Client) error {
+
+	fmt.Println("Start restore files...")
 
 	// read and parse config
-	dateOfRecovery := strings.Replace(config.DateRecovery, "_", "T", -1) + "Z"
-	fromRecovery := config.FromRecovery
-	bucket := config.Bucket
-	pathToRecovery := config.PathToRecovery
+	snapshotDate := strings.ReplaceAll(conf.Date, "_", "T") + "Z"
+	source := conf.Source
+	bucket := conf.Bucket
+	target := conf.Target
 
 	// connect to db
 	db, err := sql.Open("sqlite", nameDB)
@@ -56,7 +52,7 @@ func restoreFiles(config config.Config, minioClient *minio.Client) error {
 	}
 
 	// get hashes of file's blocks
-	hashes, err := getFileBlocks(db, fromRecovery, dateOfRecovery)
+	hashes, err := getFileBlocks(db, source, snapshotDate)
 	if err != nil {
 		return err
 	}
@@ -66,22 +62,26 @@ func restoreFiles(config config.Config, minioClient *minio.Client) error {
 	if len(hashes) == 0 {
 
 		// get files from dir
-		files, err := getFilesFromDir(db, fromRecovery, dateOfRecovery)
+		files, err := getFilesFromDir(db, source, snapshotDate)
 		if err != nil {
 			return err
+		}
+
+		if len(files) == 0 {
+			return fmt.Errorf("file not found")
 		}
 
 		// download files
 		for _, f := range files {
 
 			// get hashes
-			hashesFile, err := getFileBlocks(db, f, dateOfRecovery)
+			fileHashes, err := getFileBlocks(db, f, snapshotDate)
 			if err != nil {
 				return err
 			}
 
 			// download file
-			err = downloadFile(minioClient, bucket, f, pathToRecovery, hashesFile)
+			err = downloadFile(minioClient, bucket, f, target, fileHashes)
 			if err != nil {
 				return err
 			}
@@ -90,7 +90,7 @@ func restoreFiles(config config.Config, minioClient *minio.Client) error {
 	} else {
 
 		// download file
-		err = downloadFile(minioClient, bucket, fromRecovery, pathToRecovery, hashes)
+		err = downloadFile(minioClient, bucket, source, target, hashes)
 		if err != nil {
 			return err
 		}
@@ -99,10 +99,10 @@ func restoreFiles(config config.Config, minioClient *minio.Client) error {
 	return nil
 }
 
-func getFilesFromDir(db *sql.DB, fromRecovery string, dateOfRecovery string) (files []string, err error) {
+func getFilesFromDir(db *sql.DB, src string, snapDate string) (files []string, err error) {
 
 	// get hashes
-	rows, err := db.Query("SELECT f.path_file FROM files f JOIN snapshots s ON f.id_snapshot = s.id WHERE s.timestamp = ? AND f.path_file LIKE ?", dateOfRecovery, fromRecovery+"%")
+	rows, err := db.Query("SELECT f.path_file FROM files f JOIN snapshots s ON f.id_snapshot = s.id WHERE s.timestamp = ? AND f.path_file LIKE ?", snapDate, src+"%")
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,10 @@ func getFilesFromDir(db *sql.DB, fromRecovery string, dateOfRecovery string) (fi
 
 func createFile(pathFile string) (file *os.File, err error) {
 
-	pathSlice := strings.Split((pathFile), "/")
+	if filepath.IsAbs(pathFile) {
+
+	}
+	pathSlice := strings.Split((pathFile), string(os.PathSeparator))
 
 	// create dir
 	err = os.MkdirAll(strings.Join(pathSlice[:len(pathSlice)-1], string(os.PathSeparator)), os.ModePerm)
@@ -141,25 +144,18 @@ func createFile(pathFile string) (file *os.File, err error) {
 		return nil, err
 	}
 
-	defer file.Close()
-
 	return file, nil
 
 }
 
-func downloadFile(minioClient *minio.Client, bucket, pathFrom, pathTo string, hashes []string) error {
+func downloadFile(minioClient *minio.Client, bucket, src, target string, hashes []string) error {
 
-	pathFile, err := createFile(filepath.Join(pathTo, pathFrom))
+	pathFile, err := createFile(filepath.Join(target, src))
 	if err != nil {
 		return err
 	}
 
-	file, err := os.OpenFile(pathFile.Name(), os.O_WRONLY, os.ModePerm)
-	if err != nil {
-		return err
-	}
-
-	defer file.Close()
+	defer pathFile.Close()
 
 	// download file
 	for _, hash := range hashes {
@@ -169,7 +165,7 @@ func downloadFile(minioClient *minio.Client, bucket, pathFrom, pathTo string, ha
 			return err
 		}
 
-		_, err = io.Copy(file, data)
+		_, err = io.Copy(pathFile, data)
 		if err != nil {
 			return err
 		}
@@ -179,10 +175,10 @@ func downloadFile(minioClient *minio.Client, bucket, pathFrom, pathTo string, ha
 	return nil
 }
 
-func getFileBlocks(db *sql.DB, fromRecovery string, dateOfRecovery string) (hashes []string, err error) {
+func getFileBlocks(db *sql.DB, src string, snapDate string) (hashes []string, err error) {
 
 	// get hashes
-	rows, err := db.Query("SELECT b.hash FROM blocks b JOIN files f ON f.id_file = b.id_file JOIN snapshots s ON f.id_snapshot = s.id WHERE s.timestamp = ? AND path_file = ? ORDER BY b.block_index ASC;", dateOfRecovery, fromRecovery)
+	rows, err := db.Query("SELECT b.hash FROM blocks b JOIN files f ON f.id_file = b.id_file JOIN snapshots s ON f.id_snapshot = s.id WHERE s.timestamp = ? AND path_file = ? ORDER BY b.block_index ASC;", snapDate, src)
 	if err != nil {
 		return nil, err
 	}
@@ -203,25 +199,4 @@ func getFileBlocks(db *sql.DB, fromRecovery string, dateOfRecovery string) (hash
 	}
 
 	return res, nil
-}
-
-func connectToS3(config config.Config) (*minio.Client, error) {
-
-	// read config
-	endpoint := config.Endpoint
-	accessKeyID := config.AccessKeyID
-	secretKey := config.SecretKey
-	useSSL := config.UseSSL
-
-	// create minio client
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretKey, ""),
-		Secure: useSSL,
-		Region: "ru-central-1",
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return minioClient, nil
 }
