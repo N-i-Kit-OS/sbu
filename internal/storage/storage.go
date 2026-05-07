@@ -21,17 +21,21 @@ import (
 )
 
 const (
-	polynomial = 0x3DA3358B4DC173
-	nameDB     = "sbu.db"
-	bufSize    = 8 * 1024 * 1024
-	prefObj    = "object/"
+	polynomial          = 0x3DA3358B4DC173
+	nameDB              = "sbu.db"
+	bufSize             = 8 * 1024 * 1024
+	prefObj             = "object/"
+	minBlockSize        = 1 * 1024 * 1024
+	maxBlockSize        = 8 * 1024 * 1024
+	minFileSizeForChunk = 8 * 1024 * 1024
+	prefSnapshotName    = "sbu_"
 )
 
 // upload file to s3
 func Backup(conf config.BackupConfig, client *minio.Client) error {
 
 	// init db
-	db, err := setupDB(conf.Bucket, client)
+	db, err := SetupDB(conf.Bucket, client)
 	if err != nil {
 		return err
 	}
@@ -43,7 +47,7 @@ func Backup(conf config.BackupConfig, client *minio.Client) error {
 	}
 
 	// create snapshot
-	snapshotID, err := createSnapshot(db)
+	snapshotID, err := createSnapshot(db, conf.SnapshotName)
 	if err != nil {
 		return err
 	}
@@ -57,13 +61,18 @@ func Backup(conf config.BackupConfig, client *minio.Client) error {
 	return uploadDB(client, conf.Bucket)
 }
 
-func createSnapshot(db *sql.DB) (int64, error) {
+func createSnapshot(db *sql.DB, snapshotName string) (int64, error) {
 
 	// get time
 	nowISO := time.Now().UTC().Format(time.RFC3339)
+	name := snapshotName
+
+	if name == "" {
+		name = prefSnapshotName + time.Now().UTC().Format("2006-01-02_15:04:05")
+	}
 
 	// create snapshot
-	res, err := db.Exec("INSERT INTO snapshots (timestamp) VALUES (?)", nowISO)
+	res, err := db.Exec("INSERT INTO snapshots (timestamp, name) VALUES (?, ?)", nowISO, name)
 	if err != nil {
 		return 0, err
 	}
@@ -97,14 +106,13 @@ func backupFiles(dirName string, client *minio.Client, bucket string, db *sql.DB
 	return nil
 }
 
-func setupDB(bucket string, client *minio.Client) (*sql.DB, error) {
+func SetupDB(bucket string, client *minio.Client) (*sql.DB, error) {
 
 	// check db
 	_, err := client.StatObject(context.Background(), bucket, nameDB, minio.StatObjectOptions{})
-
-	// download db
 	if err == nil {
 
+		// download db
 		err = client.FGetObject(context.Background(), bucket, nameDB, nameDB, minio.GetObjectOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to download db: %w", err)
@@ -151,6 +159,13 @@ func normalizePath(path string) string {
 
 func uploadBlocks(filePath string, client *minio.Client, bucket string, db *sql.DB, snapshotID int64) error {
 
+	fmt.Println("uploading file:", filePath, "at", time.Now())
+
+	normPath := normalizePath(filePath)
+	if strings.HasPrefix(normPath, "..") {
+		return fmt.Errorf("relative paths with '..' are not supported, use absolute path")
+	}
+
 	// insert file to db
 	fileID, err := insertFile(db, normalizePath(filePath), snapshotID)
 	if err != nil {
@@ -164,10 +179,6 @@ func uploadBlocks(filePath string, client *minio.Client, bucket string, db *sql.
 	}
 	defer content.Close()
 
-	// split file into blocks
-	chunk := chunker.New(content, chunker.Pol(polynomial))
-	buf := make([]byte, bufSize)
-
 	// insert blocks
 	stmt, err := db.Prepare("INSERT INTO blocks (id_file, hash, block_index) VALUES (?,?,?)")
 	if err != nil {
@@ -175,9 +186,33 @@ func uploadBlocks(filePath string, client *minio.Client, bucket string, db *sql.
 	}
 	defer stmt.Close()
 
+	statOfFile, err := content.Stat()
+	if err != nil {
+		return err
+	}
+
+	if statOfFile.Size() < int64(minFileSizeForChunk) {
+
+		dataOfFile, err := io.ReadAll(content)
+		if err != nil {
+			return err
+		}
+
+		if err := uploadingBlock(dataOfFile, client, bucket, stmt, fileID, 0); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	// split file into blocks
+	chunk := chunker.NewWithBoundaries(content, chunker.Pol(polynomial), minBlockSize, maxBlockSize)
+	buf := make([]byte, bufSize)
+
 	// process split file
 	blockIndex := 0
 	for {
+		fmt.Println("uploading block:", blockIndex, "at", time.Now())
 		ch, err := chunk.Next(buf)
 		if err == io.EOF {
 			break
@@ -186,24 +221,27 @@ func uploadBlocks(filePath string, client *minio.Client, bucket string, db *sql.
 			return err
 		}
 
+		fmt.Println("uploading block:", time.Now())
 		// hashing and uploading block
-		if err := processBlock(ch, client, bucket, stmt, fileID, blockIndex); err != nil {
+		if err := uploadingBlock(ch.Data, client, bucket, stmt, fileID, blockIndex); err != nil {
 			return err
 		}
 
 		blockIndex++
+		fmt.Println("uploaded block:", blockIndex, "at", time.Now())
 	}
+	fmt.Println("uploaded file:", filePath, "at", time.Now())
 	return nil
 }
 
-func processBlock(ch chunker.Chunk, client *minio.Client, bucket string, stmt *sql.Stmt, fileID int64, blockIndex int) error {
+func uploadingBlock(data []byte, client *minio.Client, bucket string, stmt *sql.Stmt, fileID int64, blockIndex int) error {
 
 	// hashing
-	hash := sha256.Sum256(ch.Data)
+	hash := sha256.Sum256(data)
 	hash256 := hex.EncodeToString(hash[:])
 
 	// uploading block
-	_, err := client.PutObject(context.Background(), bucket, prefObj+hash256, bytes.NewReader(ch.Data), int64(len(ch.Data)), minio.PutObjectOptions{})
+	_, err := client.PutObject(context.Background(), bucket, prefObj+hash256, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
 	if err != nil {
 		return err
 	}
@@ -213,7 +251,7 @@ func processBlock(ch chunker.Chunk, client *minio.Client, bucket string, stmt *s
 }
 
 func initDB(db *sql.DB) error {
-	_, err := db.Exec("CREATE TABLE IF NOT EXISTS snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp TEXT)")
+	_, err := db.Exec("CREATE TABLE IF NOT EXISTS snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp TEXT, name TEXT)")
 	if err != nil {
 		return err
 	}
@@ -222,6 +260,10 @@ func initDB(db *sql.DB) error {
 		return err
 	}
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS blocks (id_file INTEGER,hash TEXT,block_index INTEGER NOT NULL,FOREIGN KEY (id_file) REFERENCES files(id_file),PRIMARY KEY (id_file, block_index))")
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec("CREATE INDEX IF NOT EXISTS idx_blocks_hash ON blocks(hash)")
 	if err != nil {
 		return err
 	}

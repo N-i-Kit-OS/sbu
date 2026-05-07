@@ -61,8 +61,8 @@ func run() error {
 func printUsage() {
 	fmt.Println("Usage: sbu <command> [config_path]")
 	fmt.Println("Commands:")
-	fmt.Println("  init [config_path]    create example config (default: config.yaml)")
-	fmt.Println("  run  [config_path]    run backup or restore (default: config.yaml)")
+	fmt.Println("  init [config_path]       create example config (default: config.yaml)")
+	fmt.Println("  run  [config_path]       run backup or restore (default: config.yaml)")
 }
 
 func runBackupOrRestore(cfg config.Config) error {
@@ -122,7 +122,7 @@ backup:
 restore:
   source: "oldFiles/documents"
   target: "./restored"
-  date: "2026-04-24_22-48-47"
+  date: "2026-04-24_22:48:47"
   name: "my_snapshot_2026"
   bucket: "my-backups"
   ignore:
