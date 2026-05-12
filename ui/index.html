@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Подключение к S3-хранилищу</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <h1>Подключение к S3-хранилищу</h1>
+
+    <div class="form-container">
+        <div class="form-row">
+            <label>
+                Адрес S3-хранилища 
+                <span class="hint">(без https://)</span>
+            </label>
+            <div class="input-wrapper">
+                <input type="text" id="endpoint" placeholder="s3.cloud.ru или localhost:9000" required>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <label>Идентификатор ключа доступа</label>
+            <div class="input-wrapper">
+                <input type="text" id="accessKeyId" placeholder="tenant:key или admin" required>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <label>Секретный ключ</label>
+            <div class="input-wrapper">
+                <input type="password" id="secretKey" placeholder="секретная строка" required>
+            </div>
+        </div>
+
+        <div class="checkbox-row">
+            <label>
+                <input type="checkbox" id="useSSL" checked>
+                Использовать SSL (HTTPS)
+            </label>
+            <div class="checkbox-hint">
+                Включите для облаков, отключите для локального MinIO
+            </div>
+        </div>
+
+        <div class="form-row">
+            <label>
+                Регион 
+                <span class="hint">(обязательно для Cloud.ru/AWS)</span>
+            </label>
+            <div class="input-wrapper">
+                <input type="text" id="region" placeholder="ru-central-1">
+            </div>
+        </div>
+
+        <button id="connectBtn">Подключиться</button>
+
+        <div id="message"></div>
+
+        
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

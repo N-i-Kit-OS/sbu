@@ -1,0 +1,469 @@
+/* Reset и базовые стили */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #0f0f1a;
+    min-height: 100vh;
+    padding: 40px;
+    color: #e0e0e0;
+    position: relative;
+}
+
+/* Контейнер для двух колонок */
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    gap: 0;
+    position: relative;
+    min-height: calc(100vh - 80px);
+    background: transparent;
+}
+
+.backup-section,
+.restore-section {
+    transition: opacity 0.45s ease;
+    opacity: 1;
+}
+
+/* Левая колонка - Резервное копирование */
+.backup-section {
+    flex: 1;
+    padding: 40px;
+}
+
+/* Блок-сепаратор - прозрачный контейнер шириной 10% от экрана, прижатый к правому краю */
+.separator {
+    position: fixed;
+    top: 0;
+    width: 10%;
+    height: 100vh;
+    background: transparent;
+    cursor: pointer;
+    z-index: 100;
+    transition: right 0.9s ease;
+    right: 0;
+}
+
+/* Левая граница сепаратора - непрозрачная линия */
+.separator::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 40px;
+    bottom: 40px;
+    width: 3px;
+    background: #e94560;
+    box-shadow: 0 0 4px rgba(233, 69, 96, 0.2);
+    transition: all 0.3s ease;
+}
+
+/* Класс для перемещения сепаратора влево */
+.separator.move-left {
+    right: 90%;
+}
+
+/* Когда сепаратор слева - граница справа */
+.separator.move-left::before {
+    left: auto;
+    right: 0;
+}
+
+/* Стрелка внутри сепаратора */
+.arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    z-index: 101;
+}
+
+/* Стрелка когда сепаратор справа (рядом с левой границей) */
+.separator .arrow {
+    left: 25px;
+}
+
+/* Стрелка когда сепаратор слева (рядом с правой границей) */
+.separator.move-left .arrow {
+    left: auto;
+    right: 25px;
+}
+
+/* Сама картинка стрелки */
+.arrow img {
+    width: 100%;
+    height: 100%;
+    transform: rotate(180deg);
+    transition: transform 0.3s ease;
+    filter: brightness(0) saturate(100%) invert(55%) sepia(86%) saturate(1427%) hue-rotate(316deg) brightness(96%) contrast(92%);
+}
+
+/* Когда сепаратор слева - стрелка смотрит вправо */
+.separator.move-left .arrow img {
+    transform: rotate(0deg);
+}
+
+/* Эффекты при наведении */
+.arrow:hover {
+    transform: translateY(-50%) scale(1.1);
+}
+
+.arrow:hover img {
+    filter: brightness(0) saturate(100%) invert(69%) sepia(45%) saturate(2389%) hue-rotate(315deg) brightness(99%) contrast(94%);
+}
+
+/* Эффект при нажатии */
+.arrow:active {
+    transform: translateY(-50%) scale(0.95);
+}
+
+/* Заголовки */
+h2 {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 30px;
+    padding-bottom: 15px;
+    border-bottom: 3px solid #e94560;
+    display: inline-block;
+    color: #e94560;
+}
+
+/* Группы полей */
+.field-group {
+    margin-bottom: 25px;
+}
+
+.field-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #a0a0d0;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.field-group input {
+    padding: 12px 15px;
+    border: 2px solid #2a2a3e;
+    border-radius: 10px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    background: #1a1a2e;
+    color: #e0e0e0;
+}
+
+.field-group input:focus {
+    outline: none;
+    border-color: #e94560;
+    background: #1a1a2e;
+    box-shadow: 0 0 0 3px rgba(233, 69, 96, 0.1);
+}
+
+.field-group input:not([type="checkbox"]):not([type="radio"]) {
+    width: 100%;
+}
+
+.field-group input::placeholder {
+    color: #5a5a7e;
+}
+
+.field-group div {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #7a7a9a;
+}
+
+
+.snapshot-item {
+    padding: 12px 15px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-bottom: 1px solid #2a2a3e;
+    font-size: 14px;
+    color: #d0d0d0;
+}
+
+.snapshot-item:last-child {
+    border-bottom: none;
+}
+
+.snapshot-item:hover {
+    background: #2a2a3e;
+    padding-left: 20px;
+}
+
+.snapshot-item.selected {
+    background: #e94560;
+    color: white;
+}
+
+
+.snapshot-files-list ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.snapshot-files-list li {
+    padding: 5px 0;
+    font-size: 13px;
+    color: #d0d0d0;
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+}
+
+.snapshot-files-list em {
+    display: block;
+    padding: 10px;
+    text-align: center;
+    color: #7a7a9a;
+    font-style: italic;
+}
+
+/* Кнопки */
+button {
+    background: #e94560;
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 10px;
+}
+
+button:hover:not(:disabled) {
+    background: #c7304a;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(233, 69, 96, 0.3);
+}
+
+button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+button:disabled {
+    background: #4a4a6e;
+    cursor: not-allowed;
+}
+
+/* Кнопка загрузки снапшотов */
+#loadSnapshotsBtn {
+    margin-left: 10px;
+    padding: 12px 20px;
+    background: #533483;
+}
+
+#loadSnapshotsBtn:hover:not(:disabled) {
+    background: #3d2365;
+    box-shadow: 0 4px 12px rgba(83, 52, 131, 0.3);
+}
+
+/* Сообщения */
+#backupMessage, #restoreMessage {
+    margin-top: 20px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+/* Адаптивность для мобильных устройств */
+
+/* Стили для скроллбара */
+.snapshots-list::-webkit-scrollbar,
+.snapshot-files-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.snapshots-list::-webkit-scrollbar-track,
+.snapshot-files-list::-webkit-scrollbar-track {
+    background: #1a1a2e;
+    border-radius: 4px;
+}
+
+.snapshots-list::-webkit-scrollbar-thumb,
+.snapshot-files-list::-webkit-scrollbar-thumb {
+    background: #4a4a6e;
+    border-radius: 4px;
+}
+
+.snapshots-list::-webkit-scrollbar-thumb:hover,
+.snapshot-files-list::-webkit-scrollbar-thumb:hover {
+    background: #e94560;
+}
+
+/* Стилизация em текста-заглушки */
+em {
+    color: #7a7a9a;
+}
+
+.file-tree li:hover {
+    background: rgba(233, 69, 96, 0.1);
+    border-radius: 6px;
+    padding-left: 5px;
+}
+
+.file-tree .file-tree-folder > span {
+    font-weight: 500;
+    color: #e94560;
+}
+
+.file-tree .file-tree-file {
+    color: #a0a0d0;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    cursor: default;
+}
+
+.file-tree .file-tree-file:hover {
+    background: transparent;
+}
+
+/* Стили для панели восстановления - ДОБАВИТЬ */
+.restore-section {
+    display: none;
+    flex: 1;
+    padding: 40px;
+    position: relative;
+    opacity: 0;
+    flex-direction: column;
+}
+
+/* Верхняя часть с bucket и кнопкой - ДОБАВИТЬ */
+.restore-top {
+    margin-bottom: 20px;
+}
+
+.inline-group {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.inline-group label {
+    margin-bottom: 5px;
+}
+
+.inline-group input {
+    flex: 1;
+}
+
+.inline-group button {
+    margin-top: 0;
+    margin-left: 0;
+    white-space: nowrap;
+}
+
+/* Средняя часть - две колонки - ДОБАВИТЬ */
+.restore-middle {
+    display: flex;
+    gap: 20px;
+    flex: 1;
+    min-height: 400px;
+    margin-bottom: 20px;
+}
+
+.snapshots-panel,
+.files-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.snapshots-panel label,
+.files-panel label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #a0a0d0;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ИЗМЕНИТЬ - убрать max-height, добавить flex */
+.snapshots-list {
+    border: 2px solid #2a2a3e;
+    border-radius: 10px;
+    flex: 1;
+    overflow-y: auto;
+    background: #1a1a2e;
+    min-height: 300px;
+}
+
+/* ИЗМЕНИТЬ - убрать max-height, добавить flex */
+.snapshot-files-list {
+    border: 2px solid #2a2a3e;
+    border-radius: 10px;
+    flex: 1;
+    overflow-y: auto;
+    background: #1a1a2e;
+    padding: 15px;
+    min-height: 300px;
+}
+
+/* Нижняя часть - ДОБАВИТЬ */
+.restore-bottom {
+    margin-top: auto;
+}
+
+/* Стили для файлового дерева - ОБНОВИТЬ */
+.file-tree {
+    height: 100%;
+    overflow-y: auto;
+}
+
+.file-tree ul {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.file-tree li {
+    margin: 8px 0;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s ease;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.file-tree li:hover {
+    background: rgba(233, 69, 96, 0.1);
+}
+
+/* Адаптивность для мобильных - ДОБАВИТЬ */
+@media (max-width: 768px) {
+    .restore-middle {
+        flex-direction: column;
+        min-height: auto;
+    }
+    
+    .snapshots-list,
+    .snapshot-files-list {
+        min-height: 200px;
+    }
+    
+    .inline-group {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .inline-group button {
+        width: 100%;
+    }
+}

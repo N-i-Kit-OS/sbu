@@ -20,6 +20,7 @@ const (
 
 func Restore(conf config.RestoreConfig, client *minio.Client) error {
 
+	fmt.Println(conf)
 	// download db
 	err := client.FGetObject(context.Background(), conf.Bucket, nameDB, nameDB, minio.GetObjectOptions{})
 	if err != nil {
@@ -44,6 +45,8 @@ func restoreFiles(conf config.RestoreConfig, minioClient *minio.Client) error {
 	source := conf.Source
 	bucket := conf.Bucket
 	target := conf.Target
+
+	fmt.Println(snapshotDate, source, bucket, target)
 
 	// connect to db
 	db, err := sql.Open("sqlite", nameDB)
