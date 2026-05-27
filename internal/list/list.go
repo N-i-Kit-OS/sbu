@@ -1,6 +1,6 @@
 package list
 
-import (
+/*import (
 	"diplom/internal/config"
 	"diplom/internal/storage"
 
@@ -88,3 +88,4 @@ func GetSnapshotFiles(cfg config.Config, snapshotName string) ([]string, error) 
 	}
 	return res, nil
 }
+*/

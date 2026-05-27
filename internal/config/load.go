@@ -1,36 +1,31 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"go.yaml.in/yaml/v3"
 )
 
-func ReadConfigF(cfgPath string) (Config, error) {
-
+func Load(cfgPath string) (Config, error) {
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		return Config{}, err
+		return Config{}, fmt.Errorf("config file not found: %w", err)
 	}
 
-	// read config
 	content, err := os.ReadFile(cfgPath)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// parse config to struct
 	var conf Config
-
 	err = yaml.Unmarshal(content, &conf)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("failed to unmarshal config file: %w", err)
 	}
-
 	return conf, nil
 }
 
-func CreateExampleConfig(path string) error {
-
+func Init(path string) error {
 	example := `# Режим работы: backup или restore
 mode: backup
 
@@ -56,5 +51,9 @@ restore:
   name: "my_snapshot_2026"
   bucket: "my-backups"
 `
-	return os.WriteFile(path, []byte(example), 0644)
+	if err := os.WriteFile(path, []byte(example), 0644); err != nil {
+		return fmt.Errorf("failed to create config file: %w", err)
+	}
+
+	return nil
 }
