@@ -28,8 +28,8 @@ func Execute() error {
 		return handleRun(configPath)
 	//case "ui":
 	//	return sbuserve.StartServer()
-	//case "sls":
-	//	return handleSLS(configPath)
+	case "sls":
+		return handleSLS(configPath)
 	default:
 		printUsage()
 		return nil

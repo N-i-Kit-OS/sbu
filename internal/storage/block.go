@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"diplom/internal/constants"
 	"diplom/internal/sbudb"
 	"encoding/hex"
 	"fmt"
@@ -13,8 +14,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/restic/chunker"
 )
-
-const objectPrefix = "object/"
 
 type BlockProcessor struct {
 	minioClient *minio.Client
@@ -73,7 +72,7 @@ func (b *BlockProcessor) ProcessBlock(ctx context.Context, data []byte, fileID i
 }
 
 func (b *BlockProcessor) UploadBlock(ctx context.Context, data []byte, blockHash string) error {
-	_, err := b.minioClient.PutObject(ctx, b.bucket, objectPrefix+blockHash, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
+	_, err := b.minioClient.PutObject(ctx, b.bucket, constants.ObjectPrefix+blockHash, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to upload block %s: %w", blockHash, err)
 	}

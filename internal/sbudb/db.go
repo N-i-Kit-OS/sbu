@@ -3,13 +3,12 @@ package sbudb
 import (
 	"context"
 	"database/sql"
+	"diplom/internal/constants"
 	"fmt"
 
 	"github.com/minio/minio-go/v7"
 	_ "modernc.org/sqlite"
 )
-
-const nameDB = "sbu.db"
 
 func InitSchema(db *sql.DB) error {
 	_, err := db.Exec("CREATE TABLE IF NOT EXISTS snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp TEXT, name TEXT)")
@@ -32,16 +31,16 @@ func InitSchema(db *sql.DB) error {
 }
 
 func DownloadFromS3(ctx context.Context, bucket string, client *minio.Client) error {
-	_, err := client.StatObject(ctx, bucket, nameDB, minio.StatObjectOptions{})
+	_, err := client.StatObject(ctx, bucket, constants.NameDB, minio.StatObjectOptions{})
 	if err != nil {
 		return nil
 	}
 
-	return client.FGetObject(ctx, bucket, nameDB, nameDB, minio.GetObjectOptions{})
+	return client.FGetObject(ctx, bucket, constants.NameDB, constants.NameDB, minio.GetObjectOptions{})
 }
 
 func OpenLocal() (*sql.DB, error) {
-	db, err := sql.Open("sqlite", nameDB)
+	db, err := sql.Open("sqlite", constants.NameDB)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +66,7 @@ func BlockExists(ctx context.Context, db *sql.DB, blockHash string) (bool, error
 }
 
 func UploadToS3(ctx context.Context, bucket string, client *minio.Client) error {
-	if _, err := client.FPutObject(ctx, bucket, nameDB, nameDB, minio.PutObjectOptions{}); err != nil {
+	if _, err := client.FPutObject(ctx, bucket, constants.NameDB, constants.NameDB, minio.PutObjectOptions{}); err != nil {
 		return fmt.Errorf("failed to upload DB: %w", err)
 	}
 

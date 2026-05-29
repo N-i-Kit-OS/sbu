@@ -1,9 +1,6 @@
 package list
 
-/*import (
-	"diplom/internal/config"
-	"diplom/internal/storage"
-
+import (
 	_ "modernc.org/sqlite"
 )
 
@@ -16,18 +13,14 @@ type SnapshotInfo struct {
 	Timestamp string
 }
 
+/*
 func GetAllSnapshots(cfg config.Config) ([]SnapshotInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	// connect to s3
-	minioClient, err := storage.ConnectToS3(cfg.S3Config)
+	client, err := storage.ConnectToS3(cfg.S3Config)
 	if err != nil {
-		return []SnapshotInfo{}, err
-	}
-
-	// download and open db
-	db, err := storage.SetupDB(cfg.BackupConfig.Bucket, minioClient)
-	if err != nil {
-		return []SnapshotInfo{}, err
+		return nil, err
 	}
 
 	// get snapshots

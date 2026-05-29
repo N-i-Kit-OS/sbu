@@ -1,4 +1,4 @@
-package fs
+package sbufs
 
 import (
 	"path/filepath"

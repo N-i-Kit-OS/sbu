@@ -4,6 +4,7 @@ import (
 	"context"
 	"diplom/internal/config"
 	"diplom/internal/sbudb"
+	"diplom/internal/sbufs"
 	"fmt"
 	"io"
 	"io/fs"
@@ -45,14 +46,14 @@ func Backup(conf config.BackupConfig, client *minio.Client) error {
 
 	err = filepath.WalkDir(conf.Source, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return fmt.Errorf("Error reading file %d: %w", path, err)
+			return fmt.Errorf("Error reading file %s: %w", path, err)
 		}
 
 		if d.IsDir() {
 			return nil
 		}
 
-		fileID, err := sbudb.InsertFile(ctx, db, path, snapshotID)
+		fileID, err := sbudb.InsertFile(ctx, db, sbufs.NormalizePath(path), snapshotID)
 		if err != nil {
 			return fmt.Errorf("failed to insert file %s into snapshot %d: %w", path, snapshotID, err)
 		}
