@@ -62,7 +62,7 @@ func createFile(pathFile string) (file *os.File, err error) {
 		return nil, fmt.Errorf("failed to create dir:%s, %w", pathSlice[:len(pathSlice)-1], err)
 	}
 
-	file, err = os.Create(filepath.Join(pathSlice...))
+	file, err = os.Create(pathFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file:%s, %w", pathFile, err)
 	}

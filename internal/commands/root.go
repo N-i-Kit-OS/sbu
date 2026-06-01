@@ -26,8 +26,8 @@ func Execute() error {
 		return handleInit(configPath)
 	case "run":
 		return handleRun(configPath)
-	//case "ui":
-	//	return sbuserve.StartServer()
+	case "ui":
+		return handleUI()
 	case "sls":
 		return handleSLS(configPath)
 	default:

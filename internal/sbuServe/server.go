@@ -1,14 +1,15 @@
 package sbuserve
 
-/*
 import (
 	"context"
 	"diplom/internal/config"
 	"diplom/internal/restore"
+	"diplom/internal/sbudb"
 	"diplom/internal/storage"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 func StartServer() error {
@@ -23,7 +24,7 @@ func StartServer() error {
 	fmt.Println("Starting UI server at http://localhost:8010")
 	err := http.ListenAndServe(":8010", nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to start UI server: %w", err)
 	}
 	return nil
 }
@@ -52,13 +53,7 @@ func handleConnect(w http.ResponseWriter, r *http.Request) {
 		Region:      req.Region,
 	}
 
-	minioClient, err := storage.ConnectToS3(cfg)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	_, err = minioClient.ListBuckets(context.Background())
+	_, err = storage.ConnectToS3(cfg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -80,8 +75,7 @@ func handleBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Connect to S3
-	minioClient, err := storage.ConnectToS3(req.S3)
+	client, err := storage.ConnectToS3(req.S3)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -95,7 +89,7 @@ func handleBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run backup
-	if err := storage.Backup(backupCfg, minioClient); err != nil {
+	if err := storage.Backup(backupCfg, client); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -104,6 +98,9 @@ func handleBackup(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Backup completed"})
 }
 func handleSnapshots(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	var req struct {
 		Bucket string          `json:"bucket"`
 		S3     config.S3Config `json:"s3"`
@@ -114,18 +111,24 @@ func handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Connect to S3
-	minioClient, err := storage.ConnectToS3(req.S3)
+	client, err := storage.ConnectToS3(req.S3)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	db, err := storage.SetupDB(req.Bucket, minioClient)
+	err = sbudb.DownloadFromS3(ctx, req.Bucket, client)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	db, err := sbudb.OpenLocal()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
 
 	rows, err := db.Query("SELECT name, timestamp FROM snapshots")
 	if err != nil {
@@ -154,6 +157,7 @@ func handleRestore(w http.ResponseWriter, r *http.Request) {
 		Date     string          `json:"date"`
 		S3       config.S3Config `json:"s3"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -183,29 +187,39 @@ func handleRestore(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Restore completed"})
 }
 func handleSnapshotFiles(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	var req struct {
 		Snapshot string          `json:"snapshot"`
 		Bucket   string          `json:"bucket"`
 		S3       config.S3Config `json:"s3"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	minioClient, err := storage.ConnectToS3(req.S3)
+	client, err := storage.ConnectToS3(req.S3)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	db, err := storage.SetupDB(req.Bucket, minioClient)
+	err = sbudb.DownloadFromS3(ctx, req.Bucket, client)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Получаем id снапшота по имени
+	db, err := sbudb.OpenLocal()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer db.Close()
+
 	var snapshotID int
 	err = db.QueryRow("SELECT id FROM snapshots WHERE name = ?", req.Snapshot).Scan(&snapshotID)
 	if err != nil {
@@ -213,7 +227,6 @@ func handleSnapshotFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Получаем все файлы для этого снапшота
 	rows, err := db.Query("SELECT path_file FROM files WHERE id_snapshot = ?", snapshotID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -231,4 +244,3 @@ func handleSnapshotFiles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(files)
 }
-*/
