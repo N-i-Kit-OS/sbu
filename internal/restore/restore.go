@@ -50,6 +50,7 @@ func Restore(conf config.RestoreConfig, client *minio.Client) error {
 			return fmt.Errorf("failed to download file: %w", err)
 		}
 	}
+
 	fmt.Println(" Restore completed")
 	return nil
 }

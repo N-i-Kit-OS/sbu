@@ -45,6 +45,7 @@ func NewBlockProcessor(minioClient *minio.Client, bucket string, db *sql.DB) (*B
 	}
 
 	return &BlockProcessor{
+
 		minioClient: minioClient,
 		bucket:      bucket,
 		db:          db,

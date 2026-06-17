@@ -4,12 +4,11 @@ import (
 	"context"
 	"diplom/internal/config"
 	"diplom/internal/sbudb"
-	"diplom/internal/sbufs"
 	"fmt"
-	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -44,54 +43,59 @@ func Backup(conf config.BackupConfig, client *minio.Client) error {
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
+	var files []string
+
 	err = filepath.WalkDir(conf.Source, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("Error reading file %s: %w", path, err)
 		}
 
-		if d.IsDir() {
+		if !d.IsDir() {
+			files = append(files, path)
 			return nil
-		}
-
-		fileID, err := sbudb.InsertFile(ctx, db, sbufs.NormalizePath(path), snapshotID)
-		if err != nil {
-			return fmt.Errorf("failed to insert file %s into snapshot %d: %w", path, snapshotID, err)
-		}
-
-		file, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("failed to open file %s: %w", path, err)
-		}
-		defer file.Close()
-
-		info, err := file.Stat()
-		if err != nil {
-			return fmt.Errorf("failed to get file info %s: %w", path, err)
-		}
-		size := info.Size()
-
-		if size < minFileSize {
-			data, err := io.ReadAll(file)
-			if err != nil {
-				return fmt.Errorf("failed to read file %s: %w", path, err)
-			}
-
-			if err := processor.ProcessBlock(ctx, data, fileID, 0); err != nil {
-				return fmt.Errorf("failed to process block: %w", err)
-			}
-
-			return nil
-		}
-
-		err = processor.ProcessFileChunks(ctx, file, fileID)
-		if err != nil {
-			return fmt.Errorf(" failed to process file %s: %w", path, err)
 		}
 
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf(" failed to walk source directory: %w", err)
+		return fmt.Errorf("failed to walk dir: %w", err)
+	}
+
+	numCPUs := runtime.NumCPU()
+
+	jobs := make(chan string, numCPUs)
+	errorChan := make(chan error, numCPUs)
+
+	var wg sync.WaitGroup
+
+	for w := 0; w < numCPUs; w++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for file := range jobs {
+				if err := processFile(ctx, db, processor, file, snapshotID); err != nil {
+					errorChan <- fmt.Errorf("failed to process file: %w", err)
+				}
+			}
+		}()
+	}
+
+	for _, f := range files {
+		jobs <- f
+	}
+
+	close(jobs)
+	wg.Wait()
+	close(errorChan)
+
+	errs := []error{}
+	for err := range errorChan {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to process files: %v", errs)
 	}
 
 	if err := sbudb.UploadToS3(ctx, conf.Bucket, client); err != nil {
