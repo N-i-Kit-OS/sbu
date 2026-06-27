@@ -118,6 +118,5 @@ func (b *BlockProcessor) ProcessFileChunks(ctx context.Context, content io.Reade
 
 		blockIndex++
 	}
-
 	return nil
 }

@@ -11,7 +11,6 @@ import (
 )
 
 func ConnectToS3(cfg config.S3Config) (*minio.Client, error) {
-
 	// validation
 	if cfg.Endpoint == "" {
 		return nil, errors.New("S3 endpoint is empty")

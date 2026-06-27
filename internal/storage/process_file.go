@@ -30,6 +30,7 @@ func processFile(ctx context.Context, db *sql.DB, processor *BlockProcessor, pat
 
 	if size < minFileSize {
 		data, err := io.ReadAll(file)
+
 		if err != nil {
 			return fmt.Errorf("failed to read file %s: %w", path, err)
 		}
