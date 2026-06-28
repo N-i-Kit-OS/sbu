@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -11,15 +10,14 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/minio/minio-go/v7"
 	"github.com/restic/chunker"
 )
 
 type BlockProcessor struct {
-	minioClient *minio.Client
-	bucket      string
-	db          *sql.DB
-	insertStmt  *sql.Stmt
+	ObjectStorage ObjectStorage
+	bucket        string
+	db            *sql.DB
+	insertStmt    *sql.Stmt
 }
 
 func hashBlock(data []byte) string {
@@ -28,9 +26,9 @@ func hashBlock(data []byte) string {
 	return hash256
 }
 
-func NewBlockProcessor(minioClient *minio.Client, bucket string, db *sql.DB) (*BlockProcessor, error) {
-	if minioClient == nil {
-		return nil, fmt.Errorf("minioClient is nil")
+func NewBlockProcessor(client ObjectStorage, bucket string, db *sql.DB) (*BlockProcessor, error) {
+	if client == nil {
+		return nil, fmt.Errorf("objectStorage(minioClient) is nil")
 	}
 	if db == nil {
 		return nil, fmt.Errorf("db is nil")
@@ -45,10 +43,10 @@ func NewBlockProcessor(minioClient *minio.Client, bucket string, db *sql.DB) (*B
 	}
 
 	return &BlockProcessor{
-		minioClient: minioClient,
-		bucket:      bucket,
-		db:          db,
-		insertStmt:  stmt,
+		ObjectStorage: client,
+		bucket:        bucket,
+		db:            db,
+		insertStmt:    stmt,
 	}, nil
 }
 
@@ -72,7 +70,7 @@ func (b *BlockProcessor) ProcessBlock(ctx context.Context, data []byte, fileID i
 }
 
 func (b *BlockProcessor) UploadBlock(ctx context.Context, data []byte, blockHash string) error {
-	_, err := b.minioClient.PutObject(ctx, b.bucket, constants.ObjectPrefix+blockHash, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
+	err := b.ObjectStorage.PutObject(ctx, b.bucket, constants.ObjectPrefix+blockHash, data)
 	if err != nil {
 		return fmt.Errorf("failed to upload block %s: %w", blockHash, err)
 	}

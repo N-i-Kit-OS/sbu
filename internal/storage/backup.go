@@ -33,7 +33,9 @@ func Backup(conf config.BackupConfig, client *minio.Client) error {
 	}
 	defer db.Close()
 
-	processor, err := NewBlockProcessor(client, conf.Bucket, db)
+	MAdapter := NewMinioAdapter(client)
+
+	processor, err := NewBlockProcessor(MAdapter, conf.Bucket, db)
 	if err != nil {
 		return fmt.Errorf("failed to create block processor: %w", err)
 	}
