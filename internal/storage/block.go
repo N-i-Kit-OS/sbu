@@ -28,7 +28,7 @@ func hashBlock(data []byte) string {
 
 func NewBlockProcessor(client ObjectStorage, bucket string, db *sql.DB) (*BlockProcessor, error) {
 	if client == nil {
-		return nil, fmt.Errorf("objectStorage(minioClient) is nil")
+		return nil, fmt.Errorf("objectStorage(client) is nil")
 	}
 	if db == nil {
 		return nil, fmt.Errorf("db is nil")
